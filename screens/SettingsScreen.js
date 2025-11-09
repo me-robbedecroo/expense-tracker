@@ -9,7 +9,7 @@ import {
   Platform,
   Alert
 } from 'react-native';
-import { getWeeklyLimit, setWeeklyLimit } from '../utils/storage';
+import { getWeeklyLimit, setWeeklyLimit, parseDecimal } from '../utils/storage';
 
 export default function SettingsScreen() {
   const [weeklyLimit, setWeeklyLimitInput] = useState('');
@@ -31,7 +31,7 @@ export default function SettingsScreen() {
   };
 
   const handleSave = async () => {
-    const limit = parseFloat(weeklyLimit);
+    const limit = parseDecimal(weeklyLimit);
     
     if (isNaN(limit) || limit <= 0) {
       Alert.alert('Invalid Input', 'Please enter a valid weekly limit greater than 0.');

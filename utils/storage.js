@@ -2,7 +2,32 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const WEEKLY_LIMIT_KEY = 'weeklyLimit';
 const EXPENSES_KEY = 'expenses';
+const INCOME_KEY = 'income';
 const LAST_RESET_KEY = 'lastReset';
+
+// Parse decimal number supporting both . and , as decimal separators
+// Converts comma to dot before parsing to handle European number format
+export const parseDecimal = (value) => {
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    return NaN;
+  }
+  
+  // Convert to string if it's a number
+  const str = String(value).trim();
+  
+  if (str === '' || str === '.' || str === ',') {
+    return NaN;
+  }
+  
+  // Replace comma with dot for decimal separator
+  // This handles cases like "10,50" or "10.50"
+  const normalized = str.replace(',', '.');
+  
+  // Parse the normalized string
+  const parsed = parseFloat(normalized);
+  
+  return isNaN(parsed) ? NaN : parsed;
+};
 
 // Get the start of the current week (Monday)
 export const getWeekStart = (date = new Date()) => {
@@ -68,22 +93,29 @@ export const checkAndResetWeek = async () => {
 const archiveCurrentWeek = async () => {
   try {
     const expenses = await getExpenses();
-    if (expenses.length === 0) return;
+    const income = await getIncome();
     
     const weekStart = getWeekStart();
     const archivedWeeks = await getArchivedWeeks();
+    
+    // Calculate net total (expenses - income)
+    const totalExpenses = expenses.reduce((sum, exp) => sum + parseFloat(exp.amount), 0);
+    const totalIncome = income.reduce((sum, inc) => sum + parseFloat(inc.amount), 0);
+    const netTotal = totalExpenses - totalIncome;
     
     // Add current week to archived weeks
     archivedWeeks.push({
       weekStart: weekStart.toISOString(),
       expenses: expenses,
-      total: expenses.reduce((sum, exp) => sum + parseFloat(exp.amount), 0)
+      income: income,
+      total: netTotal
     });
     
     await AsyncStorage.setItem('archivedWeeks', JSON.stringify(archivedWeeks));
     
-    // Clear current expenses
+    // Clear current expenses and income
     await AsyncStorage.setItem(EXPENSES_KEY, JSON.stringify([]));
+    await AsyncStorage.setItem(INCOME_KEY, JSON.stringify([]));
   } catch (error) {
     console.error('Error archiving week:', error);
   }
@@ -154,6 +186,49 @@ export const deleteExpense = async (expenseId) => {
   }
 };
 
+// Get current week income
+export const getIncome = async () => {
+  try {
+    await checkAndResetWeek();
+    const income = await AsyncStorage.getItem(INCOME_KEY);
+    return income ? JSON.parse(income) : [];
+  } catch (error) {
+    console.error('Error getting income:', error);
+    return [];
+  }
+};
+
+// Add income
+export const addIncome = async (amount) => {
+  try {
+    await checkAndResetWeek();
+    const income = await getIncome();
+    const newIncome = {
+      id: Date.now().toString(),
+      amount: parseFloat(amount),
+      date: new Date().toISOString()
+    };
+    income.push(newIncome);
+    await AsyncStorage.setItem(INCOME_KEY, JSON.stringify(income));
+    return newIncome;
+  } catch (error) {
+    console.error('Error adding income:', error);
+    throw error;
+  }
+};
+
+// Delete income
+export const deleteIncome = async (incomeId) => {
+  try {
+    const income = await getIncome();
+    const filtered = income.filter(inc => inc.id !== incomeId);
+    await AsyncStorage.setItem(INCOME_KEY, JSON.stringify(filtered));
+  } catch (error) {
+    console.error('Error deleting income:', error);
+    throw error;
+  }
+};
+
 // Get archived weeks
 export const getArchivedWeeks = async () => {
   try {
@@ -170,17 +245,24 @@ export const getAllWeeks = async () => {
   try {
     await checkAndResetWeek();
     const currentExpenses = await getExpenses();
+    const currentIncome = await getIncome();
     const archivedWeeks = await getArchivedWeeks();
     const currentWeekStart = getWeekStart();
     
     const weeks = [];
     
     // Add current week
-    if (currentExpenses.length > 0 || archivedWeeks.length === 0) {
+    if (currentExpenses.length > 0 || currentIncome.length > 0 || archivedWeeks.length === 0) {
+      // Calculate net total (expenses - income)
+      const totalExpenses = currentExpenses.reduce((sum, exp) => sum + parseFloat(exp.amount), 0);
+      const totalIncome = currentIncome.reduce((sum, inc) => sum + parseFloat(inc.amount), 0);
+      const netTotal = totalExpenses - totalIncome;
+      
       weeks.push({
         weekStart: currentWeekStart.toISOString(),
         expenses: currentExpenses,
-        total: currentExpenses.reduce((sum, exp) => sum + parseFloat(exp.amount), 0),
+        income: currentIncome,
+        total: netTotal,
         isCurrent: true
       });
     }
